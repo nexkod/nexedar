@@ -215,7 +215,16 @@ var portalTmpl = template.Must(template.New("portal").Parse(`<!DOCTYPE html>
 </body>
 </html>`))
 
-var adminTmpl = template.Must(template.New("admin").Parse(`<!DOCTYPE html>
+var adminFuncMap = template.FuncMap{
+	"divFloat": func(a int64, b float64) float64 {
+		if b == 0 {
+			return 0
+		}
+		return float64(a) / b
+	},
+}
+
+var adminTmpl = template.Must(template.New("admin").Funcs(adminFuncMap).Parse(`<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -461,17 +470,8 @@ func (s *Server) handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	funcMap := template.FuncMap{
-		"divFloat": func(a int64, b float64) float64 {
-			return float64(a) / b
-		},
-	}
-
-	tmplWithFunc := template.Must(adminTmpl.Clone())
-	tmplWithFunc.Funcs(funcMap)
-
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = tmplWithFunc.Execute(w, map[string]any{
+	_ = adminTmpl.Execute(w, map[string]any{
 		"Projects": dataList,
 	})
 }
