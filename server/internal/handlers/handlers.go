@@ -52,6 +52,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 
 	// Branding & Logo
 	mux.HandleFunc("GET /logo.png", s.handleLogo)
+	mux.HandleFunc("GET /favicon.ico", s.handleLogo)
 
 	// Admin Authentication (Form login)
 	mux.HandleFunc("GET /login", s.handleLoginPage)

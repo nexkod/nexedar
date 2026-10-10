@@ -20,6 +20,7 @@ var portalTmpl = template.Must(template.New("portal").Parse(`<!DOCTYPE html>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{{.Project.Name}} — Download & Update</title>
+  <link rel="icon" type="image/png" href="/logo.png">
   <style>
     :root {
       --bg: #090d16;
@@ -233,6 +234,7 @@ var loginTmpl = template.Must(template.New("login").Parse(`<!DOCTYPE html>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>NexEdar Admin Login</title>
+  <link rel="icon" type="image/png" href="/logo.png">
   <style>
     :root {
       --bg: #090d16;
@@ -360,6 +362,7 @@ var adminTmpl = template.Must(template.New("admin").Funcs(adminFuncMap).Parse(`<
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>NexEdar Console — Dashboard</title>
+  <link rel="icon" type="image/png" href="/logo.png">
   <style>
     :root {
       --bg: #090d16;
