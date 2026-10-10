@@ -186,6 +186,23 @@ func (s *Server) handleUploadRelease(w http.ResponseWriter, r *http.Request) {
 	changelog := r.FormValue("changelog")
 	isMandatory := r.FormValue("is_mandatory") == "true"
 	purgePrevious := r.FormValue("purge_previous") == "true"
+	forceUpload := r.FormValue("force") == "true"
+
+	// 1. Version validation check against current latest release
+	existingLatest, err := s.db.GetLatestRelease(projectID)
+	if err == nil && existingLatest != nil {
+		if !forceUpload {
+			// Check if version_code is lower than or equal to current latest
+			if versionCode < existingLatest.VersionCode {
+				http.Error(w, fmt.Sprintf(`{"error":"version check failed: uploaded version_code (%d) is lower than current latest (%d). Use force=true to override."}`, versionCode, existingLatest.VersionCode), http.StatusConflict)
+				return
+			}
+			if versionCode == existingLatest.VersionCode && versionName == existingLatest.VersionName {
+				http.Error(w, fmt.Sprintf(`{"error":"version check failed: build v%s (#%d) already exists. Bump version in pubspec.yaml or pass force=true."}`, versionName, versionCode), http.StatusConflict)
+				return
+			}
+		}
+	}
 
 	// Ensure project exists
 	proj, err := s.db.GetProject(projectID)
