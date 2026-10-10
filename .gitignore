@@ -1,0 +1,16 @@
+# Binaries and builds
+server/nexedar
+*.exe
+*.apk
+build/
+
+# Data directory
+server/data/
+data/
+
+# Environment files
+.env
+.env.local
+
+# OS
+.DS_Store

@@ -1,0 +1,21 @@
+name: nexedar_updater
+description: Direct Over-The-Air (OTA) in-app auto-updater for NexKod Flutter applications using NexEdar distribution server.
+version: 1.0.0
+homepage: https://github.com/nexkod/nexedar
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+  flutter: ">=3.10.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.0
+  package_info_plus: ^8.0.0
+  open_filex: ^4.5.0
+  path_provider: ^2.1.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
