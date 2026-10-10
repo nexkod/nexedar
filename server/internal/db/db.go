@@ -134,10 +134,7 @@ func (db *DB) ListProjects() ([]Project, error) {
 }
 
 func (db *DB) InsertRelease(r Release) (int64, error) {
-	query := `
-	INSERT INTO releases (project_id, version_name, version_code, file_path, file_size_bytes, sha256, changelog, is_mandatory, is_active)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
-	`
+	query := `INSERT INTO releases (project_id, version_name, version_code, file_path, file_size_bytes, sha256, changelog, is_mandatory, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
 	res, err := db.Exec(query, r.ProjectID, r.VersionName, r.VersionCode, r.FilePath, r.FileSizeBytes, r.SHA256, r.Changelog, r.IsMandatory, r.IsActive)
 	if err != nil {
 		return 0, err
@@ -146,13 +143,7 @@ func (db *DB) InsertRelease(r Release) (int64, error) {
 }
 
 func (db *DB) GetLatestRelease(projectID string) (*Release, error) {
-	query := `
-	SELECT id, project_id, version_name, version_code, file_path, file_size_bytes, sha256, changelog, is_mandatory, is_active, download_count, created_at
-	FROM releases
-	WHERE project_id = ? AND is_active = TRUE
-	ORDER BY version_code DESC, id DESC
-	LIMIT 1;
-	`
+	query := `SELECT id, project_id, version_name, version_code, file_path, file_size_bytes, sha256, changelog, is_mandatory, is_active, download_count, created_at FROM releases WHERE project_id = ? AND is_active = 1 ORDER BY version_code DESC, id DESC LIMIT 1`
 	row := db.QueryRow(query, projectID)
 	var r Release
 	var changelog sql.NullString
@@ -164,11 +155,7 @@ func (db *DB) GetLatestRelease(projectID string) (*Release, error) {
 }
 
 func (db *DB) GetRelease(id int64) (*Release, error) {
-	query := `
-	SELECT id, project_id, version_name, version_code, file_path, file_size_bytes, sha256, changelog, is_mandatory, is_active, download_count, created_at
-	FROM releases
-	WHERE id = ?;
-	`
+	query := `SELECT id, project_id, version_name, version_code, file_path, file_size_bytes, sha256, changelog, is_mandatory, is_active, download_count, created_at FROM releases WHERE id = ?`
 	row := db.QueryRow(query, id)
 	var r Release
 	var changelog sql.NullString
@@ -180,12 +167,7 @@ func (db *DB) GetRelease(id int64) (*Release, error) {
 }
 
 func (db *DB) ListReleases(projectID string) ([]Release, error) {
-	query := `
-	SELECT id, project_id, version_name, version_code, file_path, file_size_bytes, sha256, changelog, is_mandatory, is_active, download_count, created_at
-	FROM releases
-	WHERE project_id = ?
-	ORDER BY version_code DESC, id DESC;
-	`
+	query := `SELECT id, project_id, version_name, version_code, file_path, file_size_bytes, sha256, changelog, is_mandatory, is_active, download_count, created_at FROM releases WHERE project_id = ? ORDER BY version_code DESC, id DESC`
 	rows, err := db.Query(query, projectID)
 	if err != nil {
 		return nil, err
@@ -201,6 +183,9 @@ func (db *DB) ListReleases(projectID string) ([]Release, error) {
 		}
 		r.Changelog = changelog.String
 		list = append(list, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return list, nil
 }
@@ -228,13 +213,7 @@ func (db *DB) DeleteProject(id string) error {
 }
 
 func (db *DB) GetReleasesExceedingRetention(projectID string, keepCount int) ([]Release, error) {
-	query := `
-	SELECT id, project_id, version_name, version_code, file_path, file_size_bytes, sha256, changelog, is_mandatory, is_active, download_count, created_at
-	FROM releases
-	WHERE project_id = ?
-	ORDER BY version_code DESC, id DESC
-	LIMIT -1 OFFSET ?;
-	`
+	query := `SELECT id, project_id, version_name, version_code, file_path, file_size_bytes, sha256, changelog, is_mandatory, is_active, download_count, created_at FROM releases WHERE project_id = ? ORDER BY version_code DESC, id DESC LIMIT -1 OFFSET ?`
 	rows, err := db.Query(query, projectID, keepCount)
 	if err != nil {
 		return nil, err
@@ -250,6 +229,9 @@ func (db *DB) GetReleasesExceedingRetention(projectID string, keepCount int) ([]
 		}
 		r.Changelog = changelog.String
 		list = append(list, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	return list, nil
 }
