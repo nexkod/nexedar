@@ -14,7 +14,6 @@ WORKDIR /app
 COPY --from=builder /app/nexedar .
 
 EXPOSE 8090
-VOLUME ["/data"]
 
 ENV PORT=8090
 ENV DATA_DIR=/data

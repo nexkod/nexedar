@@ -17,7 +17,4 @@ services:
       - API_SECRET=${API_SECRET:-nx_sec_live_99a8b7c6d5e4f3}
       - MAX_BUILDS_PER_APP=${MAX_BUILDS_PER_APP:-3}
     volumes:
-      - edar_data:/data
-
-volumes:
-  edar_data:
+      - ./data:/data
