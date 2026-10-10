@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"archive/zip"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -59,7 +60,63 @@ func (s *Storage) SaveAPK(projectID, versionName string, versionCode int, src io
 	}
 
 	sha256Hex := hex.EncodeToString(hasher.Sum(nil))
+
+	// Attempt to auto-extract app icon from APK if possible
+	_ = s.ExtractAPKIcon(destPath, projectID)
+
 	return destPath, written, sha256Hex, nil
+}
+
+func (s *Storage) SaveIcon(projectID string, src io.Reader) (string, error) {
+	projDir := s.ProjectDir(projectID)
+	if err := os.MkdirAll(projDir, 0755); err != nil {
+		return "", err
+	}
+	iconPath := filepath.Join(projDir, "icon.png")
+	out, err := os.Create(iconPath)
+	if err != nil {
+		return "", err
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, src); err != nil {
+		return "", err
+	}
+	return iconPath, nil
+}
+
+func (s *Storage) ExtractAPKIcon(apkPath, projectID string) error {
+	r, err := zip.OpenReader(apkPath)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	// Prioritize highest quality mipmap or flutter asset icons
+	candidates := []string{
+		"res/mipmap-xxxhdpi-v4/ic_launcher.png",
+		"res/mipmap-xxhdpi-v4/ic_launcher.png",
+		"res/mipmap-xhdpi-v4/ic_launcher.png",
+		"res/mipmap-hdpi-v4/ic_launcher.png",
+		"assets/flutter_assets/assets/images/logo.png",
+	}
+
+	for _, cand := range candidates {
+		for _, f := range r.File {
+			if f.Name == cand {
+				rc, err := f.Open()
+				if err != nil {
+					continue
+				}
+				_, err = s.SaveIcon(projectID, rc)
+				rc.Close()
+				if err == nil {
+					return nil
+				}
+			}
+		}
+	}
+	return fmt.Errorf("no launcher icon found")
 }
 
 func (s *Storage) DeleteFile(filePath string) error {

@@ -170,7 +170,7 @@ var portalTmpl = template.Must(template.New("portal").Parse(`<!DOCTYPE html>
       {{if .Project.IconURL}}
         <img class="brand-logo" src="{{.Project.IconURL}}" alt="App Icon">
       {{else}}
-        <img class="brand-logo" src="/logo.png" alt="NexEdar Logo">
+        <img class="brand-logo" src="/p/{{.Project.ID}}/icon.png" alt="App Icon">
       {{end}}
     </div>
 
@@ -582,6 +582,18 @@ var adminTmpl = template.Must(template.New("admin").Funcs(adminFuncMap).Parse(`<
           <button type="submit" class="btn btn-primary">Upload & Publish APK</button>
         </form>
       </div>
+
+      <div style="margin-top:1.25rem; padding-top:1rem; border-top:1px solid var(--border); display:flex; align-items:center; justify-content:space-between;">
+        <div style="display:flex; align-items:center; gap:12px;">
+          <img src="/p/{{.Project.ID}}/icon.png" alt="Icon" style="width:36px; height:36px; border-radius:8px; object-fit:cover; border:1px solid var(--border);">
+          <span style="font-size:0.8rem; color:var(--text-muted);">Current App Icon</span>
+        </div>
+        <form action="/admin/upload-icon" method="POST" enctype="multipart/form-data" style="display:flex; gap:8px; align-items:center;">
+          <input type="hidden" name="project_id" value="{{.Project.ID}}">
+          <input type="file" name="icon" accept="image/png,image/jpeg" required style="font-size:0.75rem; padding:4px;">
+          <button type="submit" class="btn btn-outline">Update Icon</button>
+        </form>
+      </div>
     </div>
     {{end}}
   </div>
@@ -822,6 +834,33 @@ func (s *Server) handleAdminUploadRelease(w http.ResponseWriter, r *http.Request
 
 	if s.cfg.MaxBuildsPerApp > 0 {
 		s.purgeExcessReleases(projectID, s.cfg.MaxBuildsPerApp)
+	}
+
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
+
+func (s *Server) handleAdminUploadIcon(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	projectID := r.FormValue("project_id")
+	file, _, err := r.FormFile("icon")
+	if err != nil {
+		http.Error(w, "Icon is required", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	_, err = s.storage.SaveIcon(projectID, file)
+	if err == nil {
+		iconURL := fmt.Sprintf("%s/p/%s/icon.png", s.cfg.PublicURL, projectID)
+		proj, _ := s.db.GetProject(projectID)
+		if proj != nil {
+			proj.IconURL = iconURL
+			_ = s.db.UpsertProject(*proj)
+		}
 	}
 
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)

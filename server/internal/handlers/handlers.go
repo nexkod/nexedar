@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -35,14 +37,16 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/apps/{project_id}/latest", s.handleGetLatestRelease)
 	mux.HandleFunc("GET /api/v1/apps/{project_id}/releases", s.handleListReleasesAPI)
 
-	// Public Download & QR
+	// Public Download, QR & Project Icon
 	mux.HandleFunc("GET /p/{project_id}", s.handlePortalPage)
 	mux.HandleFunc("GET /p/{project_id}/download", s.handleDirectDownloadLatest)
 	mux.HandleFunc("GET /p/{project_id}/download/{release_id}", s.handleDownloadRelease)
 	mux.HandleFunc("GET /p/{project_id}/qr", s.handleProjectQR)
+	mux.HandleFunc("GET /p/{project_id}/icon.png", s.handleProjectIcon)
 
 	// Authenticated Upload & Release Management
 	mux.HandleFunc("POST /api/v1/apps/{project_id}/releases", s.authMiddleware(s.handleUploadRelease))
+	mux.HandleFunc("POST /api/v1/apps/{project_id}/icon", s.authMiddleware(s.handleUploadIcon))
 	mux.HandleFunc("DELETE /api/v1/apps/{project_id}/releases/{release_id}", s.authMiddleware(s.handleDeleteRelease))
 	mux.HandleFunc("POST /api/v1/projects", s.authMiddleware(s.handleCreateProject))
 
@@ -60,6 +64,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /admin/delete-release", s.adminAuthMiddleware(s.handleAdminDeleteRelease))
 	mux.HandleFunc("POST /admin/create-project", s.adminAuthMiddleware(s.handleAdminCreateProject))
 	mux.HandleFunc("POST /admin/upload-release", s.adminAuthMiddleware(s.handleAdminUploadRelease))
+	mux.HandleFunc("POST /admin/upload-icon", s.adminAuthMiddleware(s.handleAdminUploadIcon))
 }
 
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
@@ -366,6 +371,57 @@ func (s *Server) handleProjectQR(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/png")
 	w.Header().Set("Cache-Control", "public, max-age=3600")
 	w.Write(pngBytes)
+}
+
+func (s *Server) handleProjectIcon(w http.ResponseWriter, r *http.Request) {
+	projectID := r.PathValue("project_id")
+	iconPath := filepath.Join(s.storage.ProjectDir(projectID), "icon.png")
+	if _, err := os.Stat(iconPath); err == nil {
+		w.Header().Set("Content-Type", "image/png")
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		http.ServeFile(w, r, iconPath)
+		return
+	}
+	// Fallback to default NexKod/NexEdar logo
+	s.handleLogo(w, r)
+}
+
+func (s *Server) handleUploadIcon(w http.ResponseWriter, r *http.Request) {
+	projectID := r.PathValue("project_id")
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	file, _, err := r.FormFile("icon")
+	if err != nil {
+		file, _, err = r.FormFile("file")
+	}
+	if err != nil {
+		http.Error(w, "Icon file is required", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	_, err = s.storage.SaveIcon(projectID, file)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Update project icon_url if not set
+	iconURL := fmt.Sprintf("%s/p/%s/icon.png", s.cfg.PublicURL, projectID)
+	proj, _ := s.db.GetProject(projectID)
+	if proj != nil {
+		proj.IconURL = iconURL
+		_ = s.db.UpsertProject(*proj)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"success":  true,
+		"icon_url": iconURL,
+	})
 }
 
 func (s *Server) purgeExcessReleases(projectID string, keepCount int) {
