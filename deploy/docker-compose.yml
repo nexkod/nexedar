@@ -6,7 +6,7 @@ services:
     container_name: nexedar-service
     restart: unless-stopped
     ports:
-      - "${PORT:-8090}:8090"
+      - "${PORT:-8092}:8090"
     environment:
       - PORT=8090
       - DATA_DIR=/data
