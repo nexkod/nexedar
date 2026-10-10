@@ -823,7 +823,7 @@ func (s *Server) handleAdminUploadRelease(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	_, _ = s.db.InsertRelease(db.Release{
+	_, err = s.db.InsertRelease(db.Release{
 		ProjectID:     projectID,
 		VersionName:   versionName,
 		VersionCode:   versionCode,
@@ -834,6 +834,10 @@ func (s *Server) handleAdminUploadRelease(w http.ResponseWriter, r *http.Request
 		IsMandatory:   false,
 		IsActive:      true,
 	})
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to record release in database: %v", err), http.StatusInternalServerError)
+		return
+	}
 
 	if s.cfg.MaxBuildsPerApp > 0 {
 		s.purgeExcessReleases(projectID, s.cfg.MaxBuildsPerApp)
