@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type Storage struct {
@@ -141,10 +142,13 @@ func (s *Storage) GetDiskUsage(projectID string) (int64, int, error) {
 
 	for _, entry := range entries {
 		if !entry.IsDir() {
-			info, err := entry.Info()
-			if err == nil {
-				totalSize += info.Size()
-				fileCount++
+			name := entry.Name()
+			if strings.HasSuffix(name, ".apk") || strings.HasSuffix(name, ".ipa") {
+				info, err := entry.Info()
+				if err == nil {
+					totalSize += info.Size()
+					fileCount++
+				}
 			}
 		}
 	}
