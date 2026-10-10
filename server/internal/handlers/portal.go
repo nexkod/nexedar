@@ -554,8 +554,34 @@ var adminTmpl = template.Must(template.New("admin").Funcs(adminFuncMap).Parse(`<
         </tbody>
       </table>
       {{else}}
-      <p style="font-size:0.85rem; color:var(--text-muted); margin-top:0.5rem;">No releases uploaded yet.</p>
+      <p style="font-size:0.85rem; color:var(--text-muted); margin-top:0.5rem; margin-bottom:1rem;">No releases uploaded yet.</p>
       {{end}}
+
+      <div style="margin-top:1.5rem; padding-top:1rem; border-top:1px solid var(--border);">
+        <h3 style="font-size:0.9rem; margin-bottom:0.75rem; color:#94a3b8;">📤 Upload New APK Build</h3>
+        <form action="/admin/upload-release" method="POST" enctype="multipart/form-data">
+          <input type="hidden" name="project_id" value="{{.Project.ID}}">
+          <div class="form-grid">
+            <div>
+              <label style="display:block; font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">APK File (.apk)</label>
+              <input type="file" name="file" accept=".apk" required style="padding:6px;">
+            </div>
+            <div>
+              <label style="display:block; font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">Version Name (e.g. 1.0.0)</label>
+              <input type="text" name="version_name" required placeholder="1.0.0">
+            </div>
+            <div>
+              <label style="display:block; font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">Version Code (e.g. 1)</label>
+              <input type="number" name="version_code" required value="1">
+            </div>
+            <div>
+              <label style="display:block; font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">Changelog</label>
+              <input type="text" name="changelog" placeholder="Bug fixes & performance improvements">
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary">Upload & Publish APK</button>
+        </form>
+      </div>
     </div>
     {{end}}
   </div>
@@ -752,3 +778,52 @@ func (s *Server) handleAdminCreateProject(w http.ResponseWriter, r *http.Request
 	}
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
+
+func (s *Server) handleAdminUploadRelease(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(100 << 20); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	projectID := r.FormValue("project_id")
+	versionName := r.FormValue("version_name")
+	versionCode, _ := strconv.Atoi(r.FormValue("version_code"))
+	changelog := r.FormValue("changelog")
+
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "File is required", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	if versionCode <= 0 {
+		versionCode = 1
+	}
+
+	// Save APK
+	filePath, size, sha, err := s.storage.SaveAPK(projectID, versionName, versionCode, file)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	_, _ = s.db.InsertRelease(db.Release{
+		ProjectID:     projectID,
+		VersionName:   versionName,
+		VersionCode:   versionCode,
+		FilePath:      filePath,
+		FileSizeBytes: size,
+		SHA256:        sha,
+		Changelog:     changelog,
+		IsMandatory:   false,
+		IsActive:      true,
+	})
+
+	if s.cfg.MaxBuildsPerApp > 0 {
+		s.purgeExcessReleases(projectID, s.cfg.MaxBuildsPerApp)
+	}
+
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
+

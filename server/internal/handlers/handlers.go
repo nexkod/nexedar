@@ -59,6 +59,7 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /admin/purge", s.adminAuthMiddleware(s.handleAdminPurgeOld))
 	mux.HandleFunc("POST /admin/delete-release", s.adminAuthMiddleware(s.handleAdminDeleteRelease))
 	mux.HandleFunc("POST /admin/create-project", s.adminAuthMiddleware(s.handleAdminCreateProject))
+	mux.HandleFunc("POST /admin/upload-release", s.adminAuthMiddleware(s.handleAdminUploadRelease))
 }
 
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
