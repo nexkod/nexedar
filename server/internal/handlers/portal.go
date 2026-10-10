@@ -1,11 +1,16 @@
 package handlers
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"html/template"
 	"net/http"
 	"strconv"
+	"strings"
 
+	"github.com/nexkod/nexedar/internal/assets"
 	"github.com/nexkod/nexedar/internal/db"
 )
 
@@ -18,134 +23,141 @@ var portalTmpl = template.Must(template.New("portal").Parse(`<!DOCTYPE html>
   <style>
     :root {
       --bg: #090d16;
-      --card-bg: rgba(22, 28, 45, 0.75);
+      --card-bg: rgba(18, 24, 38, 0.85);
       --border: rgba(255, 255, 255, 0.1);
-      --primary: #3b82f6;
-      --primary-hover: #2563eb;
-      --accent: #10b981;
+      --primary: #06b6d4;
+      --primary-hover: #0891b2;
+      --accent: #38bdf8;
       --text: #f3f4f6;
-      --text-muted: #9ca3af;
+      --text-muted: #94a3b8;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      background: radial-gradient(circle at 50% 0%, #172554 0%, var(--bg) 70%);
+      background: radial-gradient(circle at 50% 0%, #0f2744 0%, var(--bg) 70%);
       color: var(--text);
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       min-height: 100vh;
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 2rem 1rem;
+      padding: 2.5rem 1rem;
     }
     .container {
       width: 100%;
       max-width: 520px;
       background: var(--card-bg);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
       border: 1px solid var(--border);
-      border-radius: 24px;
-      padding: 2.25rem 1.75rem;
-      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+      border-radius: 28px;
+      padding: 2.5rem 2rem;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
       text-align: center;
     }
     .badge {
-      display: inline-block;
-      padding: 4px 12px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 14px;
       font-size: 0.75rem;
       font-weight: 700;
-      letter-spacing: 0.05em;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
       border-radius: 9999px;
-      background: rgba(59, 130, 246, 0.15);
-      color: #60a5fa;
-      border: 1px solid rgba(59, 130, 246, 0.3);
-      margin-bottom: 1rem;
+      background: rgba(6, 182, 212, 0.12);
+      color: #38bdf8;
+      border: 1px solid rgba(6, 182, 212, 0.3);
+      margin-bottom: 1.5rem;
     }
-    .app-icon {
-      width: 88px;
-      height: 88px;
-      border-radius: 20px;
-      background: linear-gradient(135deg, #1e3a8a, #3b82f6);
+    .logo-header {
       display: flex;
-      align-items: center;
       justify-content: center;
-      margin: 0 auto 1.25rem;
-      box-shadow: 0 10px 25px rgba(59, 130, 246, 0.4);
-      font-size: 2.5rem;
+      margin-bottom: 1.25rem;
     }
-    .app-title { font-size: 1.75rem; font-weight: 800; margin-bottom: 0.35rem; }
-    .app-desc { font-size: 0.95rem; color: var(--text-muted); margin-bottom: 1.5rem; line-height: 1.5; }
+    .brand-logo {
+      width: 100px;
+      height: 100px;
+      border-radius: 24px;
+      object-fit: cover;
+      box-shadow: 0 10px 25px rgba(6, 182, 212, 0.3);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+    .app-title { font-size: 1.85rem; font-weight: 800; margin-bottom: 0.4rem; letter-spacing: -0.02em; }
+    .app-desc { font-size: 0.95rem; color: var(--text-muted); margin-bottom: 1.75rem; line-height: 1.5; }
     .version-meta {
-      background: rgba(0, 0, 0, 0.25);
-      border-radius: 14px;
-      padding: 0.85rem 1rem;
+      background: rgba(0, 0, 0, 0.35);
+      border-radius: 16px;
+      padding: 1rem 1.25rem;
       display: flex;
       justify-content: space-around;
-      margin-bottom: 1.5rem;
+      margin-bottom: 1.75rem;
       font-size: 0.85rem;
       border: 1px solid rgba(255, 255, 255, 0.05);
     }
-    .meta-item strong { display: block; color: var(--text-muted); font-size: 0.75rem; margin-bottom: 2px; }
+    .meta-item strong { display: block; color: var(--text-muted); font-size: 0.7rem; margin-bottom: 3px; letter-spacing: 0.05em; }
+    .meta-item span { font-weight: 700; font-size: 0.95rem; color: #f8fafc; }
     .download-btn {
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 10px;
       width: 100%;
-      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      background: linear-gradient(135deg, #0284c7, #0369a1);
       color: #fff;
       text-decoration: none;
       font-weight: 700;
       font-size: 1.1rem;
-      padding: 1rem;
-      border-radius: 16px;
-      transition: all 0.2s ease;
-      box-shadow: 0 8px 20px rgba(37, 99, 235, 0.4);
+      padding: 1.05rem;
+      border-radius: 18px;
+      transition: all 0.25s ease;
+      box-shadow: 0 10px 25px rgba(2, 132, 199, 0.4);
     }
     .download-btn:hover {
-      background: linear-gradient(135deg, #3b82f6, #2563eb);
+      background: linear-gradient(135deg, #0ea5e9, #0284c7);
       transform: translateY(-2px);
-      box-shadow: 0 12px 25px rgba(37, 99, 235, 0.6);
+      box-shadow: 0 14px 30px rgba(2, 132, 199, 0.6);
     }
     .changelog-box {
-      margin-top: 1.5rem;
+      margin-top: 1.75rem;
       text-align: left;
-      background: rgba(0, 0, 0, 0.2);
-      border-radius: 12px;
-      padding: 1rem;
+      background: rgba(0, 0, 0, 0.25);
+      border-radius: 14px;
+      padding: 1.1rem;
       border: 1px solid rgba(255, 255, 255, 0.05);
     }
-    .changelog-title { font-size: 0.85rem; font-weight: 700; color: #93c5fd; margin-bottom: 0.4rem; }
-    .changelog-text { font-size: 0.85rem; color: #d1d5db; line-height: 1.4; white-space: pre-wrap; }
+    .changelog-title { font-size: 0.85rem; font-weight: 700; color: #38bdf8; margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    .changelog-text { font-size: 0.85rem; color: #cbd5e1; line-height: 1.5; white-space: pre-wrap; }
     .qr-box {
-      margin-top: 1.75rem;
-      padding-top: 1.5rem;
+      margin-top: 2rem;
+      padding-top: 1.75rem;
       border-top: 1px solid var(--border);
       display: flex;
       flex-direction: column;
       align-items: center;
     }
     .qr-img {
-      width: 140px;
-      height: 140px;
-      border-radius: 12px;
+      width: 150px;
+      height: 150px;
+      border-radius: 16px;
       background: #fff;
-      padding: 8px;
-      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+      padding: 10px;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
     }
     .qr-caption {
-      margin-top: 0.75rem;
-      font-size: 0.75rem;
+      margin-top: 0.85rem;
+      font-size: 0.8rem;
       color: var(--text-muted);
     }
     .footer {
-      margin-top: 1.5rem;
-      font-size: 0.75rem;
-      color: #6b7280;
+      margin-top: 2rem;
+      font-size: 0.8rem;
+      color: #64748b;
+      display: flex;
+      align-items: center;
+      gap: 6px;
     }
     .no-release {
-      padding: 2rem 0;
+      padding: 2.5rem 0;
       color: var(--text-muted);
     }
   </style>
@@ -154,11 +166,11 @@ var portalTmpl = template.Must(template.New("portal").Parse(`<!DOCTYPE html>
   <div class="container">
     <div class="badge">NexKod Distribution</div>
     
-    <div class="app-icon">
+    <div class="logo-header">
       {{if .Project.IconURL}}
-        <img src="{{.Project.IconURL}}" style="width: 100%; height: 100%; border-radius: 20px; object-fit: cover;" alt="App Icon">
+        <img class="brand-logo" src="{{.Project.IconURL}}" alt="App Icon">
       {{else}}
-        📦
+        <img class="brand-logo" src="/logo.png" alt="NexEdar Logo">
       {{end}}
     </div>
 
@@ -192,25 +204,143 @@ var portalTmpl = template.Must(template.New("portal").Parse(`<!DOCTYPE html>
 
       {{if .LatestRelease.Changelog}}
       <div class="changelog-box">
-        <div class="changelog-title">What's New:</div>
+        <div class="changelog-title">Changelog</div>
         <div class="changelog-text">{{.LatestRelease.Changelog}}</div>
       </div>
       {{end}}
 
       <div class="qr-box">
         <img class="qr-img" src="/p/{{.Project.ID}}/qr" alt="Scan to download">
-        <p class="qr-caption">Scan with camera to install directly on mobile</p>
+        <p class="qr-caption">Scan with mobile camera to download directly</p>
       </div>
     {{else}}
       <div class="no-release">
         <p>No releases published yet for this project.</p>
-        <p style="font-size: 0.8rem; margin-top: 0.5rem;">Upload an APK using the CI/CD script or the admin dashboard.</p>
+        <p style="font-size: 0.8rem; margin-top: 0.5rem;">Upload an APK using CI/CD or the management console.</p>
       </div>
     {{end}}
   </div>
 
   <div class="footer">
-    Powered by <strong>NexEdar</strong> &bull; NexKod Ecosystem
+    Powered by <strong>NexEdar</strong> &bull; NexKod Systems
+  </div>
+</body>
+</html>`))
+
+var loginTmpl = template.Must(template.New("login").Parse(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NexEdar Admin Login</title>
+  <style>
+    :root {
+      --bg: #090d16;
+      --card: rgba(18, 24, 38, 0.9);
+      --border: rgba(255, 255, 255, 0.12);
+      --primary: #0284c7;
+      --primary-hover: #0369a1;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: radial-gradient(circle at 50% 10%, #0c233c 0%, var(--bg) 80%);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+    .card {
+      width: 100%;
+      max-width: 420px;
+      background: var(--card);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 2.5rem 2rem;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8);
+      text-align: center;
+    }
+    .logo-img {
+      width: 88px;
+      height: 88px;
+      border-radius: 20px;
+      object-fit: cover;
+      margin-bottom: 1.25rem;
+      box-shadow: 0 8px 24px rgba(6, 182, 212, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+    h1 { font-size: 1.6rem; font-weight: 800; margin-bottom: 0.35rem; }
+    p { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.75rem; }
+    .form-group { text-align: left; margin-bottom: 1.25rem; }
+    label { display: block; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.4rem; }
+    input {
+      width: 100%;
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid var(--border);
+      color: #fff;
+      padding: 0.85rem 1rem;
+      border-radius: 12px;
+      font-size: 0.95rem;
+      transition: all 0.2s;
+    }
+    input:focus {
+      outline: none;
+      border-color: #38bdf8;
+      box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);
+    }
+    .btn {
+      width: 100%;
+      background: linear-gradient(135deg, var(--primary), var(--primary-hover));
+      color: #fff;
+      border: none;
+      font-weight: 700;
+      font-size: 1rem;
+      padding: 0.95rem;
+      border-radius: 14px;
+      cursor: pointer;
+      margin-top: 0.5rem;
+      transition: all 0.2s;
+      box-shadow: 0 8px 20px rgba(2, 132, 199, 0.4);
+    }
+    .btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 12px 25px rgba(2, 132, 199, 0.6);
+    }
+    .error-msg {
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #fca5a5;
+      padding: 0.75rem;
+      border-radius: 10px;
+      font-size: 0.85rem;
+      margin-bottom: 1.25rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <img src="/logo.png" alt="NexEdar Logo" class="logo-img">
+    <h1>NexEdar Console</h1>
+    <p>Sign in to manage projects & application releases</p>
+
+    {{if .Error}}
+    <div class="error-msg">{{.Error}}</div>
+    {{end}}
+
+    <form method="POST" action="/login">
+      <div class="form-group">
+        <label>Admin Password</label>
+        <input type="password" name="password" required autofocus placeholder="Enter admin password">
+      </div>
+      <button type="submit" class="btn">Sign In &rarr;</button>
+    </form>
   </div>
 </body>
 </html>`))
@@ -229,17 +359,17 @@ var adminTmpl = template.Must(template.New("admin").Funcs(adminFuncMap).Parse(`<
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>NexEdar Admin Dashboard</title>
+  <title>NexEdar Console — Dashboard</title>
   <style>
     :root {
-      --bg: #0b0f19;
-      --card: #151c2e;
-      --border: #232d45;
-      --primary: #3b82f6;
+      --bg: #090d16;
+      --card: #121826;
+      --border: #1e293b;
+      --primary: #0284c7;
       --danger: #ef4444;
       --success: #10b981;
-      --text: #f9fafb;
-      --text-muted: #9ca3af;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -248,107 +378,138 @@ var adminTmpl = template.Must(template.New("admin").Funcs(adminFuncMap).Parse(`<
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       padding: 2rem 1.5rem;
     }
-    .max-w { max-width: 1080px; margin: 0 auto; }
+    .max-w { max-width: 1100px; margin: 0 auto; }
     header {
       display: flex;
       justify-content: space-between;
       align-items: center;
       margin-bottom: 2rem;
-      padding-bottom: 1rem;
+      padding-bottom: 1.25rem;
       border-bottom: 1px solid var(--border);
     }
-    h1 { font-size: 1.5rem; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .header-logo {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      object-fit: cover;
+      box-shadow: 0 4px 12px rgba(6, 182, 212, 0.4);
+    }
+    h1 { font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; }
     .card {
       background: var(--card);
       border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 1.5rem;
+      border-radius: 18px;
+      padding: 1.75rem;
       margin-bottom: 2rem;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
     }
-    h2 { font-size: 1.15rem; margin-bottom: 1rem; color: #93c5fd; }
+    h2 { font-size: 1.2rem; margin-bottom: 1rem; color: #38bdf8; font-weight: 700; }
     table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; }
-    th, td { text-align: left; padding: 10px 12px; font-size: 0.85rem; border-bottom: 1px solid var(--border); }
-    th { color: var(--text-muted); font-weight: 600; text-transform: uppercase; font-size: 0.75rem; }
+    th, td { text-align: left; padding: 12px 14px; font-size: 0.85rem; border-bottom: 1px solid var(--border); }
+    th { color: var(--text-muted); font-weight: 600; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; }
     .btn {
       display: inline-flex;
       align-items: center;
-      padding: 6px 12px;
-      border-radius: 6px;
+      padding: 7px 14px;
+      border-radius: 8px;
       border: none;
       font-size: 0.8rem;
       font-weight: 600;
       cursor: pointer;
       text-decoration: none;
+      transition: all 0.2s;
     }
     .btn-primary { background: var(--primary); color: #fff; }
-    .btn-danger { background: var(--danger); color: #fff; }
+    .btn-primary:hover { background: #0369a1; }
+    .btn-danger { background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #f87171; }
+    .btn-danger:hover { background: #ef4444; color: #fff; }
     .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    .btn-outline:hover { background: rgba(255, 255, 255, 0.05); }
     .form-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
       gap: 1rem;
-      margin-bottom: 1rem;
+      margin-bottom: 1.25rem;
     }
     input, textarea, select {
       width: 100%;
       background: #090d16;
       border: 1px solid var(--border);
       color: #fff;
-      padding: 8px 12px;
-      border-radius: 6px;
+      padding: 9px 13px;
+      border-radius: 8px;
       font-size: 0.85rem;
     }
+    input:focus, textarea:focus, select:focus {
+      outline: none;
+      border-color: #38bdf8;
+    }
     .badge {
-      padding: 2px 8px;
-      border-radius: 4px;
+      padding: 3px 9px;
+      border-radius: 6px;
       font-size: 0.75rem;
       font-weight: 600;
     }
     .badge-mandatory { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+    .badge-optional { background: rgba(148, 163, 184, 0.15); color: #94a3b8; }
   </style>
 </head>
 <body>
   <div class="max-w">
     <header>
-      <h1>📦 NexEdar Management Console</h1>
-      <div>
+      <div class="brand">
+        <img src="/logo.png" alt="NexEdar" class="header-logo">
+        <div>
+          <h1>NexEdar Console</h1>
+          <span style="font-size: 0.8rem; color: var(--text-muted);">NexKod Ecosystem App Distribution</span>
+        </div>
+      </div>
+      <div style="display: flex; gap: 8px;">
         <a href="/healthz" target="_blank" class="btn btn-outline">Health Check</a>
+        <form action="/logout" method="POST" style="display: inline;">
+          <button type="submit" class="btn btn-outline">Sign Out</button>
+        </form>
       </div>
     </header>
 
     <div class="card">
-      <h2>Create New Project</h2>
+      <h2>Create New App Project</h2>
       <form action="/admin/create-project" method="POST">
         <div class="form-grid">
           <div>
-            <label style="font-size:0.75rem; color:var(--text-muted);">Project ID / Slug (e.g. nexronda)</label>
+            <label style="display:block; font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">Project ID / Slug (e.g. nexronda)</label>
             <input type="text" name="id" required placeholder="nexronda">
           </div>
           <div>
-            <label style="font-size:0.75rem; color:var(--text-muted);">Display Name</label>
+            <label style="display:block; font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">Display Name</label>
             <input type="text" name="name" required placeholder="NexRonda Intercom">
           </div>
           <div>
-            <label style="font-size:0.75rem; color:var(--text-muted);">Description</label>
-            <input type="text" name="description" placeholder="Short summary">
+            <label style="display:block; font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">Description</label>
+            <input type="text" name="description" placeholder="App description">
           </div>
           <div>
-            <label style="font-size:0.75rem; color:var(--text-muted);">Icon URL (optional)</label>
+            <label style="display:block; font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">Custom Icon URL (optional)</label>
             <input type="text" name="icon_url" placeholder="https://...">
           </div>
         </div>
-        <button type="submit" class="btn btn-primary">Create Project</button>
+        <button type="submit" class="btn btn-primary">+ Create Project</button>
       </form>
     </div>
 
     {{range .Projects}}
     <div class="card">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1rem;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 1.25rem;">
         <div>
-          <h2>{{.Project.Name}} (<code>{{.Project.ID}}</code>)</h2>
-          <span style="font-size:0.8rem; color:var(--text-muted);">
-            Disk Used: <strong>{{.FormattedDiskUsage}}</strong> across {{.FileCount}} files &bull;
-            <a href="/p/{{.Project.ID}}" target="_blank" style="color:#60a5fa; text-decoration:none;">Open Download Portal &rarr;</a>
+          <h2>{{.Project.Name}} <span style="font-size:0.85rem; color:var(--text-muted); font-weight:normal;">({{.Project.ID}})</span></h2>
+          <span style="font-size:0.85rem; color:var(--text-muted);">
+            Disk Used: <strong style="color:#f8fafc;">{{.FormattedDiskUsage}}</strong> across {{.FileCount}} builds &bull;
+            <a href="/p/{{.Project.ID}}" target="_blank" style="color:#38bdf8; text-decoration:none; font-weight:600;">Open Download Page &rarr;</a>
           </span>
         </div>
         <form action="/admin/purge" method="POST" onsubmit="return confirm('Purge builds older than retention limit for this project?');">
@@ -362,9 +523,9 @@ var adminTmpl = template.Must(template.New("admin").Funcs(adminFuncMap).Parse(`<
         <thead>
           <tr>
             <th>Version</th>
-            <th>Code</th>
+            <th>Build Code</th>
             <th>Size</th>
-            <th>Type</th>
+            <th>Update Type</th>
             <th>Downloads</th>
             <th>Uploaded</th>
             <th>Actions</th>
@@ -377,7 +538,7 @@ var adminTmpl = template.Must(template.New("admin").Funcs(adminFuncMap).Parse(`<
             <td>#{{.VersionCode}}</td>
             <td>{{printf "%.1f MB" (divFloat .FileSizeBytes 1048576.0)}}</td>
             <td>
-              {{if .IsMandatory}}<span class="badge badge-mandatory">Mandatory</span>{{else}}Optional{{end}}
+              {{if .IsMandatory}}<span class="badge badge-mandatory">Mandatory</span>{{else}}<span class="badge badge-optional">Optional</span>{{end}}
             </td>
             <td>{{.DownloadCount}}</td>
             <td>{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
@@ -412,6 +573,73 @@ func formatBytes(b int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+func (s *Server) handleLogo(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Write(assets.LogoBytes)
+}
+
+func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
+	if s.isAuthenticatedSession(r) {
+		http.Redirect(w, r, "/admin", http.StatusSeeOther)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = loginTmpl.Execute(w, map[string]any{"Error": ""})
+}
+
+func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Bad request", http.StatusBadRequest)
+		return
+	}
+
+	pass := r.FormValue("password")
+	if pass != s.cfg.AdminPassword {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_ = loginTmpl.Execute(w, map[string]any{"Error": "Invalid admin password"})
+		return
+	}
+
+	cookieVal := s.generateSessionCookie()
+	http.SetCookie(w, &http.Cookie{
+		Name:     "nexedar_session",
+		Value:    cookieVal,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   86400 * 7, // 7 days
+	})
+
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
+
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "nexedar_session",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		MaxAge:   -1,
+	})
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
+func (s *Server) generateSessionCookie() string {
+	mac := hmac.New(sha256.New, []byte(s.cfg.APISecret))
+	mac.Write([]byte(s.cfg.AdminPassword))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func (s *Server) isAuthenticatedSession(r *http.Request) bool {
+	cookie, err := r.Cookie("nexedar_session")
+	if err != nil {
+		return false
+	}
+	expected := s.generateSessionCookie()
+	return hmac.Equal([]byte(cookie.Value), []byte(expected))
 }
 
 func (s *Server) handlePortalPage(w http.ResponseWriter, r *http.Request) {
@@ -509,10 +737,10 @@ func (s *Server) handleAdminCreateProject(w http.ResponseWriter, r *http.Request
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	id := r.FormValue("id")
-	name := r.FormValue("name")
-	desc := r.FormValue("description")
-	icon := r.FormValue("icon_url")
+	id := strings.TrimSpace(r.FormValue("id"))
+	name := strings.TrimSpace(r.FormValue("name"))
+	desc := strings.TrimSpace(r.FormValue("description"))
+	icon := strings.TrimSpace(r.FormValue("icon_url"))
 
 	if id != "" && name != "" {
 		_ = s.db.UpsertProject(db.Project{

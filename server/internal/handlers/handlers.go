@@ -46,6 +46,14 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/v1/apps/{project_id}/releases/{release_id}", s.authMiddleware(s.handleDeleteRelease))
 	mux.HandleFunc("POST /api/v1/projects", s.authMiddleware(s.handleCreateProject))
 
+	// Branding & Logo
+	mux.HandleFunc("GET /logo.png", s.handleLogo)
+
+	// Admin Authentication (Form login)
+	mux.HandleFunc("GET /login", s.handleLoginPage)
+	mux.HandleFunc("POST /login", s.handleLoginSubmit)
+	mux.HandleFunc("POST /logout", s.handleLogout)
+
 	// Admin Dashboard
 	mux.HandleFunc("GET /admin", s.adminAuthMiddleware(s.handleAdminDashboard))
 	mux.HandleFunc("POST /admin/purge", s.adminAuthMiddleware(s.handleAdminPurgeOld))
@@ -76,14 +84,21 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 func (s *Server) adminAuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		user, pass, ok := r.BasicAuth()
-		if !ok || pass != s.cfg.AdminPassword {
-			w.Header().Set("WWW-Authenticate", `Basic realm="NexEdar Admin"`)
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		// First check cookie session
+		if s.isAuthenticatedSession(r) {
+			next(w, r)
 			return
 		}
-		_ = user
-		next(w, r)
+
+		// Fallback to HTTP Basic Auth if provided
+		if user, pass, ok := r.BasicAuth(); ok && pass == s.cfg.AdminPassword {
+			_ = user
+			next(w, r)
+			return
+		}
+
+		// Redirect to proper login page for browsers
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
 	}
 }
 
