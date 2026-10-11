@@ -2,12 +2,15 @@ package storage
 
 import (
 	"archive/zip"
+	"bytes"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -93,18 +96,22 @@ func (s *Storage) ExtractAPKIcon(apkPath, projectID string) error {
 	}
 	defer r.Close()
 
-	// Prioritize highest quality mipmap or flutter asset icons
-	candidates := []string{
+	// 1. Explicit high-priority named paths
+	primaryNamed := []string{
 		"res/mipmap-xxxhdpi-v4/ic_launcher.png",
 		"res/mipmap-xxhdpi-v4/ic_launcher.png",
 		"res/mipmap-xhdpi-v4/ic_launcher.png",
 		"res/mipmap-hdpi-v4/ic_launcher.png",
+		"res/mipmap-mdpi-v4/ic_launcher.png",
 		"assets/flutter_assets/assets/images/logo.png",
+		"assets/flutter_assets/assets/images/app_icon.png",
+		"assets/flutter_assets/assets/icon.png",
+		"assets/flutter_assets/assets/logo.png",
 	}
 
-	for _, cand := range candidates {
+	for _, cand := range primaryNamed {
 		for _, f := range r.File {
-			if f.Name == cand {
+			if strings.EqualFold(f.Name, cand) {
 				rc, err := f.Open()
 				if err != nil {
 					continue
@@ -117,6 +124,88 @@ func (s *Storage) ExtractAPKIcon(apkPath, projectID string) error {
 			}
 		}
 	}
+
+	// 2. Look for any flutter assets that are images matching icon/logo
+	type candidate struct {
+		score int
+		size  int64
+		file  *zip.File
+	}
+	var flutterCands []candidate
+	for _, f := range r.File {
+		name := strings.ToLower(f.Name)
+		if strings.Contains(name, "assets/flutter_assets/") &&
+			(strings.HasSuffix(name, ".png") || strings.HasSuffix(name, ".webp") || strings.HasSuffix(name, ".jpg") || strings.HasSuffix(name, ".jpeg")) {
+			score := 0
+			if strings.Contains(name, "launcher") || strings.Contains(name, "app_icon") {
+				score = 500
+			} else if strings.Contains(name, "logo") {
+				score = 300
+			} else if strings.Contains(name, "icon") {
+				score = 100
+			}
+			if score > 0 {
+				flutterCands = append(flutterCands, candidate{score: score, size: int64(f.UncompressedSize64), file: f})
+			}
+		}
+	}
+	if len(flutterCands) > 0 {
+		sort.Slice(flutterCands, func(i, j int) bool {
+			if flutterCands[i].score != flutterCands[j].score {
+				return flutterCands[i].score > flutterCands[j].score
+			}
+			return flutterCands[i].size > flutterCands[j].size
+		})
+		rc, err := flutterCands[0].file.Open()
+		if err == nil {
+			_, err = s.SaveIcon(projectID, rc)
+			rc.Close()
+			if err == nil {
+				return nil
+			}
+		}
+	}
+
+	// 3. Look for Android launcher icons in res/ (handles obfuscated R8 names like res/o-.png)
+	var resCands []candidate
+	for _, f := range r.File {
+		if strings.HasPrefix(f.Name, "res/") && strings.HasSuffix(f.Name, ".png") && !strings.HasSuffix(f.Name, ".9.png") {
+			// Read first 24 bytes to inspect PNG dimensions
+			rc, err := f.Open()
+			if err != nil {
+				continue
+			}
+			header := make([]byte, 24)
+			n, _ := io.ReadFull(rc, header)
+			rc.Close()
+			if n == 24 && bytes.HasPrefix(header, []byte("\x89PNG\r\n\x1a\n")) {
+				w := binary.BigEndian.Uint32(header[16:20])
+				h := binary.BigEndian.Uint32(header[20:24])
+				if w == h && w >= 48 && w <= 512 {
+					score := int(w)
+					// Prioritize standard Android launcher densities
+					if w == 192 || w == 144 || w == 96 || w == 72 || w == 48 {
+						score += 1000
+					}
+					resCands = append(resCands, candidate{score: score, size: int64(f.UncompressedSize64), file: f})
+				}
+			}
+		}
+	}
+	if len(resCands) > 0 {
+		sort.Slice(resCands, func(i, j int) bool {
+			return resCands[i].score > resCands[j].score
+		})
+		rc, err := resCands[0].file.Open()
+		if err == nil {
+			_, err = s.SaveIcon(projectID, rc)
+			rc.Close()
+			if err == nil {
+				return nil
+			}
+		}
+	}
+
 	return fmt.Errorf("no launcher icon found")
 }
 

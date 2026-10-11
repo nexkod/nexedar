@@ -231,6 +231,17 @@ func (s *Server) handleUploadRelease(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if an explicit icon was also provided in the upload request
+	if iconFile, _, err := r.FormFile("icon"); err == nil {
+		_, _ = s.storage.SaveIcon(projectID, iconFile)
+		iconFile.Close()
+		iconURL := fmt.Sprintf("%s/p/%s/icon.png", s.cfg.PublicURL, projectID)
+		if p, _ := s.db.GetProject(projectID); p != nil {
+			p.IconURL = iconURL
+			_ = s.db.UpsertProject(*p)
+		}
+	}
+
 	relID, err := s.db.InsertRelease(db.Release{
 		ProjectID:     projectID,
 		VersionName:   versionName,
@@ -377,10 +388,16 @@ func (s *Server) handleProjectQR(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleProjectIcon(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("project_id")
 	iconPath := filepath.Join(s.storage.ProjectDir(projectID), "icon.png")
-	if _, err := os.Stat(iconPath); err == nil {
-		w.Header().Set("Content-Type", "image/png")
-		w.Header().Set("Cache-Control", "public, max-age=3600")
-		http.ServeFile(w, r, iconPath)
+	if data, err := os.ReadFile(iconPath); err == nil {
+		contentType := "image/png"
+		if len(data) >= 3 && data[0] == 0xff && data[1] == 0xd8 && data[2] == 0xff {
+			contentType = "image/jpeg"
+		} else if len(data) >= 12 && string(data[0:4]) == "RIFF" && string(data[8:12]) == "WEBP" {
+			contentType = "image/webp"
+		}
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Cache-Control", "no-cache, public, must-revalidate")
+		w.Write(data)
 		return
 	}
 	// Fallback to default NexKod/NexEdar logo

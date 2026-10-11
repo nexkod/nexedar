@@ -581,6 +581,10 @@ var adminTmpl = template.Must(template.New("admin").Funcs(adminFuncMap).Parse(`<
               <label style="display:block; font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">Changelog</label>
               <input type="text" name="changelog" placeholder="Bug fixes & performance improvements">
             </div>
+            <div>
+              <label style="display:block; font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">App Icon (optional, auto-extracted if empty)</label>
+              <input type="file" name="icon" accept="image/png,image/jpeg,image/webp" style="padding:4px; font-size:0.75rem;">
+            </div>
           </div>
           <button type="submit" class="btn btn-primary">Upload & Publish APK</button>
         </form>
@@ -821,6 +825,17 @@ func (s *Server) handleAdminUploadRelease(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	// Check if explicit icon was provided
+	if iconFile, _, err := r.FormFile("icon"); err == nil {
+		_, _ = s.storage.SaveIcon(projectID, iconFile)
+		iconFile.Close()
+		iconURL := fmt.Sprintf("%s/p/%s/icon.png", s.cfg.PublicURL, projectID)
+		if p, _ := s.db.GetProject(projectID); p != nil {
+			p.IconURL = iconURL
+			_ = s.db.UpsertProject(*p)
+		}
 	}
 
 	_, err = s.db.InsertRelease(db.Release{
