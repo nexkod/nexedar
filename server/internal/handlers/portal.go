@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/nexkod/nexedar/internal/assets"
 	"github.com/nexkod/nexedar/internal/db"
@@ -169,9 +170,9 @@ var portalTmpl = template.Must(template.New("portal").Parse(`<!DOCTYPE html>
     
     <div class="logo-header">
       {{if .Project.IconURL}}
-        <img class="brand-logo" src="{{.Project.IconURL}}" alt="App Icon">
+        <img class="brand-logo" src="{{.Project.IconURL}}?t={{.NowUnix}}" alt="App Icon">
       {{else}}
-        <img class="brand-logo" src="/p/{{.Project.ID}}/icon.png" alt="App Icon">
+        <img class="brand-logo" src="/p/{{.Project.ID}}/icon.png?t={{.NowUnix}}" alt="App Icon">
       {{end}}
     </div>
 
@@ -592,7 +593,7 @@ var adminTmpl = template.Must(template.New("admin").Funcs(adminFuncMap).Parse(`<
 
       <div style="margin-top:1.25rem; padding-top:1rem; border-top:1px solid var(--border); display:flex; align-items:center; justify-content:space-between;">
         <div style="display:flex; align-items:center; gap:12px;">
-          <img src="/p/{{.Project.ID}}/icon.png" alt="Icon" style="width:36px; height:36px; border-radius:8px; object-fit:cover; border:1px solid var(--border);">
+          <img src="/p/{{.Project.ID}}/icon.png?t={{$.NowUnix}}" alt="Icon" style="width:36px; height:36px; border-radius:8px; object-fit:cover; border:1px solid var(--border);">
           <span style="font-size:0.8rem; color:var(--text-muted);">Current App Icon</span>
         </div>
         <form action="/admin/upload-icon" method="POST" enctype="multipart/form-data" style="display:flex; gap:8px; align-items:center;">
@@ -702,14 +703,17 @@ func (s *Server) handlePortalPage(w http.ResponseWriter, r *http.Request) {
 		formattedSize = formatBytes(latest.FileSizeBytes)
 	}
 
+	nowUnix := time.Now().Unix()
 	data := struct {
 		Project       *db.Project
 		LatestRelease *db.Release
 		FormattedSize string
+		NowUnix       int64
 	}{
 		Project:       proj,
 		LatestRelease: latest,
 		FormattedSize: formattedSize,
+		NowUnix:       nowUnix,
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -721,6 +725,7 @@ type ProjectAdminData struct {
 	Releases           []db.Release
 	FormattedDiskUsage string
 	FileCount          int
+	NowUnix            int64
 }
 
 func (s *Server) handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
@@ -730,6 +735,7 @@ func (s *Server) handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	nowUnix := time.Now().Unix()
 	var dataList []ProjectAdminData
 	for _, p := range projects {
 		rels, _ := s.db.ListReleases(p.ID)
@@ -740,6 +746,7 @@ func (s *Server) handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 			Releases:           rels,
 			FormattedDiskUsage: formatBytes(diskBytes),
 			FileCount:          fileCount,
+			NowUnix:            nowUnix,
 		})
 	}
 
