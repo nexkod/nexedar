@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -201,7 +202,7 @@ var portalTmpl = template.Must(template.New("portal").Parse(`<!DOCTYPE html>
 
       <a href="/p/{{.Project.ID}}/download/{{.LatestRelease.ID}}" class="download-btn">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-        Download APK
+        {{.DownloadLabel}}
       </a>
 
       {{if .LatestRelease.Changelog}}
@@ -562,13 +563,13 @@ var adminTmpl = template.Must(template.New("admin").Funcs(adminFuncMap).Parse(`<
       {{end}}
 
       <div style="margin-top:1.5rem; padding-top:1rem; border-top:1px solid var(--border);">
-        <h3 style="font-size:0.9rem; margin-bottom:0.75rem; color:#94a3b8;">📤 Upload New APK Build</h3>
+        <h3 style="font-size:0.9rem; margin-bottom:0.75rem; color:#94a3b8;">📤 Upload New Binary / App Build</h3>
         <form action="/admin/upload-release" method="POST" enctype="multipart/form-data">
           <input type="hidden" name="project_id" value="{{.Project.ID}}">
           <div class="form-grid">
             <div>
-              <label style="display:block; font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">APK File (.apk)</label>
-              <input type="file" name="file" accept=".apk" required style="padding:6px;">
+              <label style="display:block; font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">Artifact File (APK, binary, tar.gz, zip, etc.)</label>
+              <input type="file" name="file" required style="padding:6px;">
             </div>
             <div>
               <label style="display:block; font-size:0.75rem; color:var(--text-muted); margin-bottom:4px;">Version Name (e.g. 1.0.0)</label>
@@ -587,7 +588,7 @@ var adminTmpl = template.Must(template.New("admin").Funcs(adminFuncMap).Parse(`<
               <input type="file" name="icon" accept="image/png,image/jpeg,image/webp" style="padding:4px; font-size:0.75rem;">
             </div>
           </div>
-          <button type="submit" class="btn btn-primary">Upload & Publish APK</button>
+          <button type="submit" class="btn btn-primary">Upload & Publish Release</button>
         </form>
       </div>
 
@@ -703,16 +704,39 @@ func (s *Server) handlePortalPage(w http.ResponseWriter, r *http.Request) {
 		formattedSize = formatBytes(latest.FileSizeBytes)
 	}
 
+	downloadLabel := "Download"
+	if latest != nil {
+		ext := strings.ToLower(filepath.Ext(latest.FilePath))
+		switch ext {
+		case ".apk":
+			downloadLabel = "Download APK"
+		case ".ipa":
+			downloadLabel = "Download IPA"
+		case ".dmg":
+			downloadLabel = "Download DMG"
+		case ".exe":
+			downloadLabel = "Download EXE"
+		case ".zip":
+			downloadLabel = "Download ZIP"
+		case ".gz", ".tar":
+			downloadLabel = "Download Tarball"
+		default:
+			downloadLabel = "Download Binary"
+		}
+	}
+
 	nowUnix := time.Now().Unix()
 	data := struct {
 		Project       *db.Project
 		LatestRelease *db.Release
 		FormattedSize string
+		DownloadLabel string
 		NowUnix       int64
 	}{
 		Project:       proj,
 		LatestRelease: latest,
 		FormattedSize: formattedSize,
+		DownloadLabel: downloadLabel,
 		NowUnix:       nowUnix,
 	}
 
@@ -816,7 +840,7 @@ func (s *Server) handleAdminUploadRelease(w http.ResponseWriter, r *http.Request
 	versionCode, _ := strconv.Atoi(r.FormValue("version_code"))
 	changelog := r.FormValue("changelog")
 
-	file, _, err := r.FormFile("file")
+	file, header, err := r.FormFile("file")
 	if err != nil {
 		http.Error(w, "File is required", http.StatusBadRequest)
 		return
@@ -827,8 +851,8 @@ func (s *Server) handleAdminUploadRelease(w http.ResponseWriter, r *http.Request
 		versionCode = 1
 	}
 
-	// Save APK
-	filePath, size, sha, err := s.storage.SaveAPK(projectID, versionName, versionCode, file)
+	// Save binary artifact
+	filePath, size, sha, err := s.storage.SaveArtifact(projectID, versionName, versionCode, header.Filename, file)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

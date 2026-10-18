@@ -168,7 +168,7 @@ func (s *Server) handleUploadRelease(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	file, _, err := r.FormFile("file")
+	file, header, err := r.FormFile("file")
 	if err != nil {
 		http.Error(w, `{"error":"file field is required"}`, http.StatusBadRequest)
 		return
@@ -224,10 +224,10 @@ func (s *Server) handleUploadRelease(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// Save APK
-	filePath, size, sha, err := s.storage.SaveAPK(projectID, versionName, versionCode, file)
+	// Save binary artifact (APK, executable, tarball, etc.)
+	filePath, size, sha, err := s.storage.SaveArtifact(projectID, versionName, versionCode, header.Filename, file)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error":"failed to save apk: %v"}`, err), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf(`{"error":"failed to save file: %v"}`, err), http.StatusInternalServerError)
 		return
 	}
 
@@ -336,6 +336,34 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]any{"success": true, "project_id": body.ID})
 }
 
+func (s *Server) serveReleaseFile(w http.ResponseWriter, r *http.Request, rel *db.Release) {
+	_ = s.db.IncrementDownloadCount(rel.ID)
+	fileName := filepath.Base(rel.FilePath)
+	ext := strings.ToLower(filepath.Ext(fileName))
+
+	contentType := "application/octet-stream"
+	switch ext {
+	case ".apk":
+		contentType = "application/vnd.android.package-archive"
+	case ".ipa":
+		contentType = "application/octet-stream"
+	case ".gz", ".tgz":
+		contentType = "application/gzip"
+	case ".tar":
+		contentType = "application/x-tar"
+	case ".zip":
+		contentType = "application/zip"
+	case ".exe":
+		contentType = "application/x-msdownload"
+	case ".dmg":
+		contentType = "application/x-apple-diskimage"
+	}
+
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, fileName))
+	w.Header().Set("Content-Type", contentType)
+	http.ServeFile(w, r, rel.FilePath)
+}
+
 func (s *Server) handleDirectDownloadLatest(w http.ResponseWriter, r *http.Request) {
 	projectID := r.PathValue("project_id")
 	rel, err := s.db.GetLatestRelease(projectID)
@@ -343,11 +371,7 @@ func (s *Server) handleDirectDownloadLatest(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "No release available for download", http.StatusNotFound)
 		return
 	}
-
-	_ = s.db.IncrementDownloadCount(rel.ID)
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s-%s.apk"`, projectID, rel.VersionName))
-	w.Header().Set("Content-Type", "application/vnd.android.package-archive")
-	http.ServeFile(w, r, rel.FilePath)
+	s.serveReleaseFile(w, r, rel)
 }
 
 func (s *Server) handleDownloadRelease(w http.ResponseWriter, r *http.Request) {
@@ -363,11 +387,7 @@ func (s *Server) handleDownloadRelease(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Release not found", http.StatusNotFound)
 		return
 	}
-
-	_ = s.db.IncrementDownloadCount(rel.ID)
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s-%s.apk"`, rel.ProjectID, rel.VersionName))
-	w.Header().Set("Content-Type", "application/vnd.android.package-archive")
-	http.ServeFile(w, r, rel.FilePath)
+	s.serveReleaseFile(w, r, rel)
 }
 
 func (s *Server) handleProjectQR(w http.ResponseWriter, r *http.Request) {

@@ -30,13 +30,22 @@ func (s *Storage) ProjectDir(projectID string) string {
 	return filepath.Join(s.BaseDir, "apps", projectID)
 }
 
-func (s *Storage) SaveAPK(projectID, versionName string, versionCode int, src io.Reader) (string, int64, string, error) {
+func (s *Storage) SaveArtifact(projectID, versionName string, versionCode int, originalFilename string, src io.Reader) (string, int64, string, error) {
 	projDir := s.ProjectDir(projectID)
 	if err := os.MkdirAll(projDir, 0755); err != nil {
 		return "", 0, "", fmt.Errorf("failed to create project storage dir: %w", err)
 	}
 
-	fileName := fmt.Sprintf("v%s-%d.apk", versionName, versionCode)
+	ext := strings.ToLower(filepath.Ext(originalFilename))
+	var fileName string
+	if ext == ".apk" || ext == ".ipa" || ext == ".tar" || ext == ".gz" || ext == ".zip" || ext == ".exe" || ext == ".dmg" {
+		fileName = fmt.Sprintf("v%s-%d%s", versionName, versionCode, ext)
+	} else if originalFilename != "" && !strings.Contains(originalFilename, "/") && !strings.Contains(originalFilename, "\\") {
+		// e.g. nexawan-agent-linux-amd64
+		fileName = fmt.Sprintf("%s-v%s-%d", originalFilename, versionName, versionCode)
+	} else {
+		fileName = fmt.Sprintf("v%s-%d.bin", versionName, versionCode)
+	}
 	destPath := filepath.Join(projDir, fileName)
 
 	tmpPath := destPath + ".tmp"
@@ -65,10 +74,16 @@ func (s *Storage) SaveAPK(projectID, versionName string, versionCode int, src io
 
 	sha256Hex := hex.EncodeToString(hasher.Sum(nil))
 
-	// Attempt to auto-extract app icon from APK if possible
-	_ = s.ExtractAPKIcon(destPath, projectID)
+	// Attempt to auto-extract app icon if it is an APK
+	if strings.HasSuffix(destPath, ".apk") {
+		_ = s.ExtractAPKIcon(destPath, projectID)
+	}
 
 	return destPath, written, sha256Hex, nil
+}
+
+func (s *Storage) SaveAPK(projectID, versionName string, versionCode int, src io.Reader) (string, int64, string, error) {
+	return s.SaveArtifact(projectID, versionName, versionCode, "app.apk", src)
 }
 
 func (s *Storage) SaveIcon(projectID string, src io.Reader) (string, error) {
@@ -232,7 +247,7 @@ func (s *Storage) GetDiskUsage(projectID string) (int64, int, error) {
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			name := entry.Name()
-			if strings.HasSuffix(name, ".apk") || strings.HasSuffix(name, ".ipa") {
+			if !strings.HasPrefix(name, ".") && !strings.HasSuffix(name, ".tmp") && name != "icon.png" {
 				info, err := entry.Info()
 				if err == nil {
 					totalSize += info.Size()
