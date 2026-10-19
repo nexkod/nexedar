@@ -733,6 +733,7 @@ var adminTmpl = template.Must(template.New("admin").Funcs(adminFuncMap).Parse(`<
     let activeReleaseId = null;
     let activeProjectId = null;
     let deviceFarmBase = '{{.DeviceFarmURL}}';
+    let deviceFarmToken = '{{.DeviceFarmToken}}';
 
     async function openDeviceModal(releaseId, projectId, versionName) {
       activeReleaseId = releaseId;
@@ -792,6 +793,9 @@ var adminTmpl = template.Must(template.New("admin").Funcs(adminFuncMap).Parse(`<
       let streamUrl = selectedOpt ? selectedOpt.dataset.stream : '';
       if (!streamUrl && deviceFarmBase) {
         streamUrl = deviceFarmBase.replace(/\/+$/, '') + '/stream?device=' + encodeURIComponent(deviceId);
+        if (deviceFarmToken) {
+          streamUrl += '&token=' + encodeURIComponent(deviceFarmToken);
+        }
       }
       if (streamUrl) {
         iframe.src = streamUrl;
@@ -1005,6 +1009,7 @@ func (s *Server) handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 	_ = adminTmpl.Execute(w, map[string]any{
 		"Projects":             dataList,
 		"DeviceFarmURL":        s.cfg.DeviceFarmURL,
+		"DeviceFarmToken":      s.cfg.DeviceFarmToken,
 		"DeviceFarmConfigured": s.cfg.DeviceFarmURL != "",
 	})
 }
