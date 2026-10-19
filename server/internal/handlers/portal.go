@@ -4,9 +4,13 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
+	"mime/multipart"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -462,6 +466,78 @@ var adminTmpl = template.Must(template.New("admin").Funcs(adminFuncMap).Parse(`<
     }
     .badge-mandatory { background: rgba(239, 68, 68, 0.2); color: #f87171; }
     .badge-optional { background: rgba(148, 163, 184, 0.15); color: #94a3b8; }
+    .btn-device {
+      background: linear-gradient(135deg, #10b981, #059669);
+      color: #fff;
+    }
+    .btn-device:hover {
+      background: linear-gradient(135deg, #34d399, #10b981);
+    }
+    /* Device farm modal */
+    .modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(8px);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+    }
+    .modal-backdrop.open { display: flex; }
+    .modal-box {
+      background: #111827;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 20px;
+      width: 100%;
+      max-width: 960px;
+      height: 85vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 25px 60px rgba(0, 0, 0, 0.9);
+    }
+    .modal-header {
+      padding: 1rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #0f172a;
+    }
+    .modal-body {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      overflow: hidden;
+      background: #030712;
+    }
+    @media (max-width: 768px) {
+      .modal-body { grid-template-columns: 1fr; }
+    }
+    .device-controls {
+      padding: 1.5rem;
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+      background: #0b0f19;
+      overflow-y: auto;
+    }
+    .device-screen-container {
+      position: relative;
+      background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    .device-screen-iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
   </style>
 </head>
 <body>
@@ -549,6 +625,9 @@ var adminTmpl = template.Must(template.New("admin").Funcs(adminFuncMap).Parse(`<
             <td>{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
             <td>
               <a href="/p/{{.ProjectID}}/download/{{.ID}}" class="btn btn-outline" style="margin-right:4px;">Download</a>
+              {{if $.DeviceFarmConfigured}}
+              <button type="button" class="btn btn-device" style="margin-right:4px;" onclick="openDeviceModal({{.ID}}, '{{.ProjectID}}', '{{.VersionName}}')">📱 Test on Device</button>
+              {{end}}
               <form action="/admin/delete-release" method="POST" style="display:inline;" onsubmit="return confirm('Delete this release permanently?');">
                 <input type="hidden" name="release_id" value="{{.ID}}">
                 <button type="submit" class="btn btn-danger">Delete</button>
@@ -606,6 +685,154 @@ var adminTmpl = template.Must(template.New("admin").Funcs(adminFuncMap).Parse(`<
     </div>
     {{end}}
   </div>
+
+  <!-- Device Farm Testing Modal -->
+  <div id="deviceModal" class="modal-backdrop">
+    <div class="modal-box">
+      <div class="modal-header">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span style="font-size:1.2rem;">📱</span>
+          <div>
+            <strong style="font-size:1rem; color:#fff;" id="modalAppTitle">Android Device Farm</strong>
+            <div style="font-size:0.75rem; color:var(--text-muted);" id="modalAppSubtitle">Stream and control physical test device</div>
+          </div>
+        </div>
+        <button type="button" class="btn btn-outline" onclick="closeDeviceModal()">✕ Close</button>
+      </div>
+      <div class="modal-body">
+        <div class="device-controls">
+          <div>
+            <label style="display:block; font-size:0.75rem; font-weight:700; color:var(--text-muted); margin-bottom:6px; text-transform:uppercase;">Select Connected Device</label>
+            <select id="deviceSelect" onchange="onDeviceSelected()">
+              <option value="">Loading devices...</option>
+            </select>
+          </div>
+          <div>
+            <button id="installBtn" class="btn btn-primary" onclick="installOnDevice()" style="width:100%; display:flex; justify-content:center; align-items:center; gap:8px;">
+              <span>⚡ Install APK on Device</span>
+            </button>
+            <div id="installStatus" style="font-size:0.8rem; margin-top:8px; color:var(--text-muted); line-height:1.4;"></div>
+          </div>
+          <div style="margin-top:auto; font-size:0.75rem; color:var(--text-muted); border-top:1px solid var(--border); padding-top:1rem;">
+            <div><strong>Stream Host:</strong> <span id="streamHost">{{.DeviceFarmURL}}</span></div>
+            <div style="margin-top:4px;">Low-latency screen streaming with interactive touch and keyboard control via ADB &amp; scrcpy.</div>
+          </div>
+        </div>
+        <div class="device-screen-container">
+          <div id="noDeviceOverlay" style="text-align:center; padding:2rem; color:var(--text-muted);">
+            <div style="font-size:2.5rem; margin-bottom:1rem;">📱</div>
+            <p>Select a device to start live interactive stream</p>
+          </div>
+          <iframe id="deviceStreamIframe" class="device-screen-iframe" style="display:none;" allow="autoplay; fullscreen"></iframe>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let activeReleaseId = null;
+    let activeProjectId = null;
+    let deviceFarmBase = '{{.DeviceFarmURL}}';
+
+    async function openDeviceModal(releaseId, projectId, versionName) {
+      activeReleaseId = releaseId;
+      activeProjectId = projectId;
+      document.getElementById('modalAppTitle').innerText = 'Test ' + projectId + ' (v' + versionName + ')';
+      document.getElementById('modalAppSubtitle').innerText = 'Physical Android device live stream & ADB install';
+      document.getElementById('installStatus').innerText = '';
+      document.getElementById('deviceModal').classList.add('open');
+      await fetchDevices();
+    }
+
+    function closeDeviceModal() {
+      document.getElementById('deviceModal').classList.remove('open');
+      const iframe = document.getElementById('deviceStreamIframe');
+      iframe.src = 'about:blank';
+      iframe.style.display = 'none';
+      document.getElementById('noDeviceOverlay').style.display = 'block';
+    }
+
+    async function fetchDevices() {
+      const select = document.getElementById('deviceSelect');
+      select.innerHTML = '<option value="">Scanning devices...</option>';
+      try {
+        const res = await fetch('/admin/devices');
+        const data = await res.json();
+        if (!data.devices || data.devices.length === 0) {
+          select.innerHTML = '<option value="">No devices connected</option>';
+          return;
+        }
+        select.innerHTML = '';
+        data.devices.forEach((dev, idx) => {
+          const opt = document.createElement('option');
+          opt.value = dev.id;
+          opt.innerText = (dev.model || 'Android Device') + ' (' + dev.id + ') - ' + (dev.status || 'online');
+          if (dev.stream_url) {
+            opt.dataset.stream = dev.stream_url;
+          }
+          select.appendChild(opt);
+        });
+        onDeviceSelected();
+      } catch (e) {
+        select.innerHTML = '<option value="">Failed to fetch devices: ' + e.message + '</option>';
+      }
+    }
+
+    function onDeviceSelected() {
+      const select = document.getElementById('deviceSelect');
+      const deviceId = select.value;
+      const iframe = document.getElementById('deviceStreamIframe');
+      const overlay = document.getElementById('noDeviceOverlay');
+      if (!deviceId) {
+        iframe.style.display = 'none';
+        overlay.style.display = 'block';
+        return;
+      }
+      const selectedOpt = select.options[select.selectedIndex];
+      let streamUrl = selectedOpt ? selectedOpt.dataset.stream : '';
+      if (!streamUrl && deviceFarmBase) {
+        streamUrl = deviceFarmBase.replace(/\/+$/, '') + '/stream?device=' + encodeURIComponent(deviceId);
+      }
+      if (streamUrl) {
+        iframe.src = streamUrl;
+        iframe.style.display = 'block';
+        overlay.style.display = 'none';
+      }
+    }
+
+    async function installOnDevice() {
+      const select = document.getElementById('deviceSelect');
+      const deviceId = select.value;
+      const statusEl = document.getElementById('installStatus');
+      const btn = document.getElementById('installBtn');
+      if (!deviceId) {
+        statusEl.innerHTML = '<span style="color:#ef4444;">Please select a connected device first.</span>';
+        return;
+      }
+      btn.disabled = true;
+      statusEl.innerHTML = '<span style="color:#38bdf8;">⏳ Forwarding APK and installing on device ' + deviceId + '...</span>';
+      try {
+        const res = await fetch('/admin/install-on-device', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            release_id: activeReleaseId,
+            device_id: deviceId
+          })
+        });
+        const result = await res.json();
+        if (res.ok && result.success) {
+          statusEl.innerHTML = '<span style="color:#10b981;">✅ Installed successfully! Check device screen.</span>';
+        } else {
+          statusEl.innerHTML = '<span style="color:#ef4444;">❌ Installation error: ' + (result.error || 'Failed') + '</span>';
+        }
+      } catch (err) {
+        statusEl.innerHTML = '<span style="color:#ef4444;">❌ Request failed: ' + err.message + '</span>';
+      } finally {
+        btn.disabled = false;
+      }
+    }
+  </script>
 </body>
 </html>`))
 
@@ -776,7 +1003,9 @@ func (s *Server) handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = adminTmpl.Execute(w, map[string]any{
-		"Projects": dataList,
+		"Projects":             dataList,
+		"DeviceFarmURL":        s.cfg.DeviceFarmURL,
+		"DeviceFarmConfigured": s.cfg.DeviceFarmURL != "",
 	})
 }
 
@@ -917,5 +1146,127 @@ func (s *Server) handleAdminUploadIcon(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
+
+func (s *Server) handleAdminListDevices(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if s.cfg.DeviceFarmURL == "" {
+		json.NewEncoder(w).Encode(map[string]any{
+			"devices": []any{},
+			"error":   "Device Farm URL not configured",
+		})
+		return
+	}
+
+	targetURL := strings.TrimRight(s.cfg.DeviceFarmURL, "/") + "/api/v1/devices"
+	req, err := http.NewRequestWithContext(r.Context(), "GET", targetURL, nil)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]any{"error": err.Error(), "devices": []any{}})
+		return
+	}
+	if s.cfg.DeviceFarmToken != "" {
+		req.Header.Set("Authorization", "Bearer "+s.cfg.DeviceFarmToken)
+	}
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		w.WriteHeader(http.StatusBadGateway)
+		json.NewEncoder(w).Encode(map[string]any{"error": "Failed to reach device farm: " + err.Error(), "devices": []any{}})
+		return
+	}
+	defer resp.Body.Close()
+
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
+}
+
+func (s *Server) handleAdminInstallOnDevice(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if s.cfg.DeviceFarmURL == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]any{
+			"success": false,
+			"error":   "Device Farm is not configured (DEVICE_FARM_URL is empty)",
+		})
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]any{"success": false, "error": "Invalid form request"})
+		return
+	}
+
+	releaseIDStr := r.FormValue("release_id")
+	deviceID := strings.TrimSpace(r.FormValue("device_id"))
+	if releaseIDStr == "" || deviceID == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]any{"success": false, "error": "release_id and device_id are required"})
+		return
+	}
+
+	releaseID, _ := strconv.ParseInt(releaseIDStr, 10, 64)
+	rel, err := s.db.GetRelease(releaseID)
+	if err != nil || rel == nil {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]any{"success": false, "error": "Release not found"})
+		return
+	}
+
+	// Read file from storage
+	file, err := os.Open(rel.FilePath)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]any{"success": false, "error": "Failed to open release binary: " + err.Error()})
+		return
+	}
+	defer file.Close()
+
+	targetURL := fmt.Sprintf("%s/api/v1/devices/%s/install", strings.TrimRight(s.cfg.DeviceFarmURL, "/"), deviceID)
+
+	// Create pipe to stream multipart form data
+	pr, pw := io.Pipe()
+	multipartWriter := multipart.NewWriter(pw)
+
+	go func() {
+		defer pw.Close()
+		part, err := multipartWriter.CreateFormFile("file", filepath.Base(rel.FilePath))
+		if err != nil {
+			pw.CloseWithError(err)
+			return
+		}
+		if _, err := io.Copy(part, file); err != nil {
+			pw.CloseWithError(err)
+			return
+		}
+		_ = multipartWriter.WriteField("project_id", rel.ProjectID)
+		_ = multipartWriter.WriteField("version_name", rel.VersionName)
+		_ = multipartWriter.Close()
+	}()
+
+	req, err := http.NewRequestWithContext(r.Context(), "POST", targetURL, pr)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]any{"success": false, "error": err.Error()})
+		return
+	}
+	req.Header.Set("Content-Type", multipartWriter.FormDataContentType())
+	if s.cfg.DeviceFarmToken != "" {
+		req.Header.Set("Authorization", "Bearer "+s.cfg.DeviceFarmToken)
+	}
+
+	client := &http.Client{Timeout: 60 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		w.WriteHeader(http.StatusBadGateway)
+		json.NewEncoder(w).Encode(map[string]any{"success": false, "error": "Device farm connection error: " + err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, resp.Body)
 }
 

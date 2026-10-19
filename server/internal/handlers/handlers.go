@@ -66,6 +66,8 @@ func (s *Server) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /admin/create-project", s.adminAuthMiddleware(s.handleAdminCreateProject))
 	mux.HandleFunc("POST /admin/upload-release", s.adminAuthMiddleware(s.handleAdminUploadRelease))
 	mux.HandleFunc("POST /admin/upload-icon", s.adminAuthMiddleware(s.handleAdminUploadIcon))
+	mux.HandleFunc("GET /admin/devices", s.adminAuthMiddleware(s.handleAdminListDevices))
+	mux.HandleFunc("POST /admin/install-on-device", s.adminAuthMiddleware(s.handleAdminInstallOnDevice))
 }
 
 func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {

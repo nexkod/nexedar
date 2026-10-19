@@ -12,6 +12,8 @@ type Config struct {
 	AdminPassword     string
 	APISecret         string
 	MaxBuildsPerApp   int
+	DeviceFarmURL     string
+	DeviceFarmToken   string
 }
 
 func Load() *Config {
@@ -47,6 +49,9 @@ func Load() *Config {
 		}
 	}
 
+	deviceFarmURL := os.Getenv("DEVICE_FARM_URL")
+	deviceFarmToken := os.Getenv("DEVICE_FARM_TOKEN")
+
 	return &Config{
 		Port:            port,
 		DataDir:         dataDir,
@@ -54,5 +59,7 @@ func Load() *Config {
 		AdminPassword:   adminPassword,
 		APISecret:       apiSecret,
 		MaxBuildsPerApp: maxBuilds,
+		DeviceFarmURL:   deviceFarmURL,
+		DeviceFarmToken: deviceFarmToken,
 	}
 }
