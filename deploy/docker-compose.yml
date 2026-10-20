@@ -16,5 +16,7 @@ services:
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-nexkod-edar-admin}
       - API_SECRET=${API_SECRET:-nx_sec_live_99a8b7c6d5e4f3}
       - MAX_BUILDS_PER_APP=${MAX_BUILDS_PER_APP:-3}
+      - NEXAWAN_AGENT_URL=${NEXAWAN_AGENT_URL:-https://awanagenthome.nexkod.com}
+      - NEXAWAN_AUTH_TOKEN=${NEXAWAN_AUTH_TOKEN:-nex_46cc59b2ce7101f670d2715ea3c4d17a3f352810}
     volumes:
       - ./data:/data
