@@ -794,7 +794,7 @@ var adminTmpl = template.Must(template.New("admin").Funcs(adminFuncMap).Parse(`<
       if (!streamUrl && deviceFarmBase) {
         streamUrl = deviceFarmBase.replace(/\/+$/, '') + '/stream?device=' + encodeURIComponent(deviceId);
         if (deviceFarmToken) {
-          streamUrl += '&token=' + encodeURIComponent(deviceFarmToken);
+          streamUrl += '&token=' + encodeURIComponent(deviceFarmToken) + '&key=' + encodeURIComponent(deviceFarmToken);
         }
       }
       if (streamUrl) {
