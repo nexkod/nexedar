@@ -50,7 +50,14 @@ func Load() *Config {
 	}
 
 	deviceFarmURL := os.Getenv("DEVICE_FARM_URL")
+	if deviceFarmURL == "" {
+		deviceFarmURL = os.Getenv("NEXAWAN_AGENT_URL")
+	}
+
 	deviceFarmToken := os.Getenv("DEVICE_FARM_TOKEN")
+	if deviceFarmToken == "" {
+		deviceFarmToken = os.Getenv("NEXAWAN_AUTH_TOKEN")
+	}
 
 	return &Config{
 		Port:            port,
